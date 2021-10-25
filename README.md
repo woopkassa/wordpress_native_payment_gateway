@@ -1,4 +1,4 @@
-#Wordpress native payment gateway
+# Wordpress native payment gateway
 
 Установка модуля в Wordpress:
 
