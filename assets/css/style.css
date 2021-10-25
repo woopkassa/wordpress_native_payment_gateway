@@ -1,0 +1,16 @@
+.payment_method_wooppay_mobile label {
+    display: flex !important;
+    flex-direction: row;
+    align-items: center;
+}
+
+.payment_method_wooppay_mobile img {
+    max-height: initial !important;
+    max-width: initial !important;
+    width: auto;
+    height: 56px !important;
+    display: block !important;
+    margin-left: auto;
+}
+
+

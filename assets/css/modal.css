@@ -1,0 +1,21 @@
+#pleaseWaitDialog {
+    justify-content: center;
+    align-items: center;
+    padding-right: 15px;
+}
+#pleaseWaitDialog .modal-dialog{
+    width: 420px;
+    display: flex;
+    height: 420px;
+    align-items: center;
+    justify-content: center;
+}
+#pleaseWaitDialog .modal-content{
+    width: 240px;
+    height: 240px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 50%;
+}
+
