@@ -61,7 +61,7 @@ class WC_Gateway_Wooppay_Wallet extends WC_Payment_Gateway
 					global $wpdb;
 					$operation = $wpdb->get_results("SELECT operation_id FROM {$wpdb->prefix}wooppay WHERE order_id = " . $_REQUEST['id_order']);
 					$operation_data = $this->api->getOperationData($operation[0]->operation_id);
-					if ($operation_data[0]->status == 14) {
+					if ($operation_data[0]->status == 14 || $operation_data[0]->status == 19) {
 						$order->update_status('completed', __('Payment completed.', 'woocommerce'));
 						die('{"data":1}');
 					}
