@@ -138,8 +138,8 @@ class WC_Gateway_Wooppay_Wallet extends WC_Payment_Gateway
 				'title' => __('Место оплаты', 'wooppay_wallet'),
 				'type' => 'select',
 				'options' => [
-					'true' => __('Без перехода, оставаясь на вашем сайте', 'woocommerce'),
-					'false' => __('С переходом на страницу оплаты woopkassa', 'woocommerce')
+					'false' => __('Без перехода, оставаясь на вашем сайте', 'woocommerce'),
+					'true' => __('С переходом на страницу оплаты woopkassa', 'woocommerce')
 				]
 			),
 			'linkCard' => array(
