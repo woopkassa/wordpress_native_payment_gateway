@@ -63,7 +63,7 @@ class WC_Gateway_Wooppay_Wallet extends WC_Payment_Gateway
 					$operation_data = $this->api->getOperationData($operation[0]->operation_id);
 					if ($operation_data[0]->status == 14 || $operation_data[0]->status == 19) {
 						$order->update_status('completed', __('Payment completed.', 'woocommerce'));
-						die('{"data":1}');
+                        wp_redirect(home_url());
 					}
 				} catch (Exception $e) {
 					$this->add_log($e->getMessage());
@@ -259,8 +259,8 @@ class WC_Gateway_Wooppay_Wallet extends WC_Payment_Gateway
 				$this->get_option('api_password'));
 			$this->api->reference_id = $reference_id;
 			$this->api->amount = $order->get_total();
-			$this->api->back_url = $this->get_return_url($order);
 			$this->api->request_url = WC()->api_request_url('WC_Gateway_Wooppay_Wallet') . '?id_order=' . $order_id . '&key=' . $order->get_order_key();
+            $this->api->back_url = $this->api->request_url;
 			$this->api->linkCard = $this->get_option('linkCard') == 'yes' ? 1 : 0;
 			$this->api->user_phone = $order->get_billing_phone();
 			$this->api->service_name = $this->get_option('service_name');
