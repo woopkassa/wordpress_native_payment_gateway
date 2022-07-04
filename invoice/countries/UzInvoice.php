@@ -1,9 +1,6 @@
 <?php
 
-require_once(__DIR__ . '/../Invoice.php');
-require_once('Invoiceable.php');
-
-class UzInvoice extends Invoice implements Invoiceable
+class UzInvoice
 {
 	const OPTION_STANDARD = 0;
 	const OPTION_LINKED_CARD = 4;
@@ -24,13 +21,5 @@ class UzInvoice extends Invoice implements Invoiceable
 	public  function getPartnerName()
 	{
 		return self::PARTNER_NAME;
-	}
-
-	public function pseudoAuth()
-	{
-		if ($this->option !== self::OPTION_LINKED_CARD) {
-			$this->transport->authorization = '';
-		}
-		parent::pseudoAuth();
 	}
 }

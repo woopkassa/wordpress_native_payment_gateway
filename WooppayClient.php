@@ -1,62 +1,69 @@
 <?php
 
+require_once('ApiDTO.php');
+
 class WooppayClient
 {
-	public $url;
-	public $merchant_name;
-	public $password;
 
-	public $reference_id;
-	public $amount;
-	public $back_url;
-	public $request_url;
-	public $email = '';
-	public $user_phone = '';
-	public $service_name = '';
-	public $linkCard;
-
+	public $hostUrl;
 	public $invoice;
-	public $transport;
-	public $auth;
+	public $receiptCounter = 0;
 
 	const KZ_COUNTRY_CODE = 1;
 	const UZ_COUNTRY_CODE = 860;
 	const TJ_COUNTRY_CODE = 762;
+	const KZ_COUNTRY_CODE_ALTERNATIVE = 398;
 
-	public function __construct($url = '', $mechant_name = '', $password = '')
+	const TEST_CORE_URL = 'https://api.yii2-stage.test.wooppay.com/v1';
+	const CORE_URL = 'https://api-core.wooppay.com/v1';
+
+	public function __construct(bool $testMode)
 	{
-		$this->url = $url;
-		$this->merchant_name = $mechant_name;
-		$this->password = $password;
-		try {
-			if ($this->checkRequiredProperties($scenario = 'auth')) {
-				$this->initTransport();
-				$this->auth();
-			}
-		} catch (Exception $e) {
-			throw $e;
-		}
+		$testMode == true ? $this->hostUrl = self::TEST_CORE_URL : $this->hostUrl = self::CORE_URL;
 	}
 
-	private function auth()
+
+	public function auth(ApiDTO $apiDTO)
 	{
 		try {
-			$this->auth = $this->transport->sendRequest('/auth',
-				['login' => $this->merchant_name, 'password' => $this->password]);
-			$this->transport->authorization = $this->auth->token;
+			$array = array(
+				'login' => $apiDTO->apiUsername,
+				'password' => $apiDTO->apiPassword
+			);
+			$ch = curl_init($this->hostUrl . '/auth');
+			curl_setopt($ch, CURLOPT_POST, 1);
+			curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($array, '', '&'));
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+			curl_setopt($ch, CURLOPT_HEADER, false);
+			$auth = curl_exec($ch);
+			if (json_decode($auth)) {
+				$auth = json_decode($auth);
+				if (isset($auth->message)) {
+					throw new Exception($auth->message);
+				}
+				if (!isset($auth->token)) {
+					throw new Exception('Не удалось совершить вход в API, скорее всего неверный логин или пароль');
+				}
+			} else {
+				throw new Exception('Не удалось совершить вход в API, скорее всего неверный логин или пароль');
+			}
+			curl_close($ch);
+			require_once('Auth.php');
+			return new Auth($auth->token, $auth->country, $auth->login);
 		} catch (Exception $e) {
 			if (!empty($e->getMessage())) {
-				throw $e;
+				throw new Exception("Ошибка при авторизации: " . $e->getMessage());
 			} else {
 				throw new Exception('Не удалось совершить вход в API, скорее всего неверный логин или пароль');
 			}
 		}
 	}
 
-	private function getInvoiceByCountry($country)
+	private function getInvoiceByCountry(int $country)
 	{
 		switch ($country) {
-			case self::KZ_COUNTRY_CODE:
+			case self::KZ_COUNTRY_CODE || self::KZ_COUNTRY_CODE_ALTERNATIVE:
 				require_once(__DIR__ . '/invoice/countries/KzInvoice.php');
 				return new KzInvoice();
 			case self::UZ_COUNTRY_CODE:
@@ -69,95 +76,233 @@ class WooppayClient
 		throw new Exception("Invoice for $country not found!");
 	}
 
-	public function createInvoice()
+	public function createInvoice(InvoiceDTO $invoiceDTO, Auth $auth)
 	{
 		try {
-			if ($this->checkRequiredProperties($scenario = 'operation')) {
-				$this->invoice = $this->getInvoiceByCountry($this->auth->country);
-				$this->invoice->transport = $this->transport;
-				$this->invoice->transport->partner_name = $this->invoice->getPartnerName();
-				$this->setInvoiceData();
-				return $this->invoice->create();
+			$this->invoice = $this->getInvoiceByCountry($auth->country);
+			$array = array(
+				'reference_id' => $invoiceDTO->referenceId,
+				'amount' => $invoiceDTO->amount,
+				'merchant_name' => $auth->login,
+				'back_url' => $invoiceDTO->backUrl,
+				'request_url' => ['url' => urlencode($invoiceDTO->requestUrl), 'type' => 'POST'],
+				'user_phone' => $invoiceDTO->userPhone,
+				'option' => $this->invoice->getOption($invoiceDTO->linkCard),
+				'service_name' => $invoiceDTO->serviceName,
+			);
+			$ch = curl_init($this->hostUrl . '/invoice/create');
+			$headers = array('Content-type: application/json', 'language: ru', 'Time-Zone: Asia/Almaty');
+			$headers = array_merge($headers, array("Authorization: $auth->token"));
+			$headers = array_merge($headers, array("partner-name: " . $this->invoice->getPartnerName()));
+			curl_setopt($ch, CURLOPT_POST, 1);
+			curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($array));
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+			curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+			$invoice = curl_exec($ch);
+			if (json_decode($invoice)) {
+				$invoice = json_decode($invoice);
+				if (isset($invoice->message)) {
+					throw new Exception('Ошибка при создании инвойса: ' . $invoice->message);
+				}
+				if (!isset($invoice->operation_url)) {
+					throw new Exception('Не удалось создать инвойс!');
+				}
+			} else {
+				throw new Exception('Не удалось создать инвойс!');
+			}
+			curl_close($ch);
+			require_once('Invoice.php');
+			return new Invoice($invoice->operation_url, $invoice->response->operation_id,
+				$invoice->response->invoice_id, $invoice->response->key, $this->invoice->getPartnerName());
+		} catch (Exception $e) {
+			if (!empty($e->getMessage())) {
+				throw new Exception($e->getMessage());
+			} else {
+				throw new Exception('Не удалось создать инвойс!');
+			}
+		}
+	}
+
+	public function pseudoAuth(InvoiceContinueDTO $invoiceContinueDTO)
+	{
+		try {
+			$array = [
+				'login' => $invoiceContinueDTO->userPhone
+			];
+			$ch = curl_init($this->hostUrl . '/auth/pseudo');
+			$headers = array('Content-type: application/json', 'language: ru', 'Time-Zone: Asia/Almaty');
+			if ($invoiceContinueDTO->linkCard === true) {
+				$headers = array_merge($headers, array("Authorization: $invoiceContinueDTO->token"));
+				$array = array_merge($array, ['subject_type' => 5019]);
+			}
+			curl_setopt($ch, CURLOPT_POST, 1);
+			curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($array));
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+			curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+			$pseudoAuth = curl_exec($ch);
+			if (json_decode($pseudoAuth)) {
+				$pseudoAuth = json_decode($pseudoAuth);
+				if (isset($pseudoAuth->message)) {
+					throw new Exception('Ошибка при попытке псевдоавторизации: ' . $pseudoAuth->message);
+				}
+				if (!isset($pseudoAuth->token)) {
+					throw new Exception('Ошибка при попытке псевдоавторизации!');
+				}
+			} else {
+				throw new Exception('Не удалось пройти псевдоавторизацию!');
+			}
+			curl_close($ch);
+			require_once('PseudoAuth.php');
+			return new PseudoAuth($pseudoAuth->token, substr($pseudoAuth->login, 0, 1));
+		} catch (Exception $e) {
+			if (!empty($e->getMessage())) {
+				throw new Exception($e->getMessage());
+			} else {
+				throw new Exception('Не удалось пройти псевдоавторизацию!');
+			}
+		}
+	}
+
+	public function getCards(PseudoAuth $auth)
+	{
+		try {
+			$curl = curl_init();
+			curl_setopt($curl, CURLOPT_URL, $this->hostUrl . '/card');
+			curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+			$headers = array('Content-type: application/json', 'language: ru', 'Time-Zone: Asia/Almaty');
+			$headers = array_merge($headers, array("Authorization: $auth->token"));
+			curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
+			$cards = curl_exec($curl);
+			curl_close($curl);
+			if ($cards !== "[]") {
+				if (json_decode($cards)) {
+					return json_decode($cards);
+					if (isset($cards->message)) {
+						throw new Exception('Ошибка при попытке получения привязанных карт: ' . $cards->message);
+					}
+				} else {
+					throw new Exception('Не удалось получить привязанные карты!');
+				}
 			}
 		} catch (Exception $e) {
-			throw $e;
-		}
-	}
-
-	private function initTransport()
-	{
-		require_once('Transport.php');
-		$this->transport = new Transport();
-		$this->transport->url = $this->url;
-	}
-
-	private function setInvoiceData()
-	{
-		$this->invoice->reference_id = $this->reference_id;
-		$this->invoice->amount = $this->amount;
-		$this->invoice->merchant_name = $this->merchant_name;
-		$this->invoice->back_url = $this->back_url;
-		$this->invoice->request_url = $this->request_url;
-		$this->invoice->user_phone = $this->user_phone;
-		$this->invoice->option = $this->invoice->getOption($this->linkCard);
-		$this->invoice->email = $this->email;
-		$this->invoice->service_name = $this->service_name;
-	}
-
-	private function checkRequiredProperties($scenario)
-	{
-		switch ($scenario) {
-			case 'auth':
-				$properties = $this->getRequiredAuthPropertiesList();
-				break;
-			case 'operation':
-				$properties = $this->getRequiredOperationPropertiesList();
-				break;
-		}
-		foreach ($properties as $property) {
-			if (empty($this->$property)) {
-				throw new Exception($this->getPropertyErrorMessage($property));
+			if (!empty($e->getMessage())) {
+				throw new Exception($e->getMessage());
+			} else {
+				throw new Exception('Не удалось получить привязанные карты!');
 			}
 		}
-		return true;
 	}
 
-	private function getRequiredAuthPropertiesList()
+	public function payFromCard(InvoiceContinueDTO $continueDTO, PseudoAuth $pseudoAuth, $cardId = null)
 	{
-		return [
-			'url',
-			'merchant_name',
-			'password',
-		];
+		try {
+			$array = [
+				'invoice_id' => $continueDTO->invoiceId,
+				'key' => $continueDTO->invoiceKey,
+			];
+			isset($cardId) ? $array = array_merge($array, ['card_id' => $cardId]) : '';
+			$ch = curl_init($this->hostUrl . '/invoice/pay-from-card');
+			$headers = array('Content-type: application/json', 'language: ru', 'Time-Zone: Asia/Almaty');
+			$headers = array_merge($headers, array("Authorization: $pseudoAuth->token"));
+			curl_setopt($ch, CURLOPT_POST, 1);
+			curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($array));
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+			curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+			$cardFrame = curl_exec($ch);
+			if (json_decode($cardFrame)) {
+				$cardFrame = json_decode($cardFrame);
+				if (isset($cardFrame->message)) {
+					throw new Exception('Ошибка при генерации фрейма оплаты с карты: ' . $cardFrame->message);
+				}
+				if (!isset($cardFrame->frame_url)) {
+					throw new Exception('Не удалось создать инвойс!');
+				}
+			} else {
+				throw new Exception('Не удалось получить фрейм ввода карты!');
+			}
+			curl_close($ch);
+			require_once('CardFrame.php');
+			return new CardFrame($cardFrame->frame_url, $cardFrame->operation_id, $cardFrame->payment_operation);
+		} catch (Exception $e) {
+			if (!empty($e->getMessage())) {
+				throw new Exception($e->getMessage());
+			} else {
+				throw new Exception('Не удалось получить фрейм ввода карты!');
+			}
+		}
 	}
 
-	private function getRequiredOperationPropertiesList()
+	public function getReceipt(int $operationId, PseudoAuth $auth)
 	{
-		return [
-			'reference_id',
-			'amount',
-			'back_url',
-			'request_url'
-		];
+		try {
+			$curl = curl_init();
+			curl_setopt($curl, CURLOPT_URL, $this->hostUrl . '/history/receipt/pdf/' . $operationId);
+			curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+			$headers = array('Content-type: application/json', 'language: ru', 'Time-Zone: Asia/Almaty');
+			$headers = array_merge($headers, array("Authorization: $auth->token"));
+			curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
+			$receipt = curl_exec($curl);
+			if (json_decode($receipt)) {
+				$receipt = json_decode($receipt);
+				if (isset($receipt[0]->message) && $receipt[0]->message == 'Чек для данной операции не формировался') {
+					while ($this->receiptCounter < 10) {
+						$this->receiptCounter++;
+						sleep(2);
+						return self::getReceipt($operationId, $auth);
+					}
+					return '';
+				} elseif (isset($receipt->message)) {
+					throw new Exception('Ошибка при генерации чека: ' . $receipt->message);
+				}
+			} else {
+				return chunk_split(base64_encode($receipt));
+			}
+		} catch (Exception $e) {
+			if (!empty($e->getMessage())) {
+				throw new Exception($e->getMessage());
+			} else {
+				throw new Exception('Формирование чека завершилось ошибкой');
+			}
+		}
 	}
 
-	private function getPropertyErrorMessage($property)
+	public function getOperationData($operationId, Auth $auth)
 	{
-		$messages = [
-			'amount' => 'Не указан amount в заказе',
-			'reference_id' => 'Не указан reference_id',
-			'back_url' => 'Не указан back_url',
-			'request_url' => 'Не указан request_url',
-			'url' => 'Не указан API URL в настройках модуля',
-			'merchant_name' => 'Не указан API Username в настройках модуля',
-			'password' => 'Не указан API Password в настройках модуля',
-		];
-		return $messages[$property];
-	}
 
-	public function getOperationData($operation_id)
-	{
-		 return $this->transport->sendRequest('/history/transaction/get-operations-data', ['operation_ids' => [$operation_id]]);
+
+		try {
+			$array = [
+				'operation_ids' => [$operationId],
+			];
+			$ch = curl_init($this->hostUrl . '/history/transaction/get-operations-data');
+			$headers = array('Content-type: application/json', 'language: ru', 'Time-Zone: Asia/Almaty');
+			$headers = array_merge($headers, array("Authorization: $auth->token"));
+			curl_setopt($ch, CURLOPT_POST, 1);
+			curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($array));
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+			curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+			$operationData = curl_exec($ch);
+			if (json_decode($operationData)) {
+				$operationData = json_decode($operationData);
+				if (isset($operationData->message)) {
+					throw new Exception('Ошибка при попытке получить статус операции: ' . $operationData->message);
+				}
+			} else {
+				throw new Exception('Не удалось получить статус операции!');
+			}
+			curl_close($ch);
+			return $operationData;
+		} catch (Exception $e) {
+			if (!empty($e->getMessage())) {
+				throw new Exception($e->getMessage());
+			} else {
+				throw new Exception('Не удалось получить статус операции!');
+			}
+		}
 	}
 
 }

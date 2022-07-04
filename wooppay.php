@@ -36,7 +36,6 @@
  */
 
 session_start();
-
 function woocommerce_cpg_fallback_notice_wallet()
 {
 	echo '<div class="error"><p>' . sprintf(__('WooCommerce Wooppay Gateways depends on the last version of %s to work!',
@@ -144,7 +143,6 @@ function add_frame_modal()
                 </div>
             </div>
         </div>
-        <div id="file_url" style="display: none"><?php echo plugins_url('noRedirectScript.php', __FILE__) ?></div>
     </div>
 	<?php
 }
@@ -179,190 +177,8 @@ function register_my_session()
 
 function modal_action_javascript()
 {
-	$no_redirect_url = plugins_url('noRedirectScript.php', __FILE__);
-	?>
-    <script>
-
-
-        function getQueryVariable(variable, query) {
-            var vars = query.split('&');
-            for (var i = 0; i < vars.length; i++) {
-                var pair = vars[i].split('=');
-                if (decodeURIComponent(pair[0]) == variable) {
-                    return decodeURIComponent(pair[1]);
-                }
-            }
-        }
-
-        (function ($) {
-            jQuery(document).bind('ajaxStart', function (e, request, options) {
-                $('#pleaseWaitDialog').modal({
-                    backdrop: 'static',
-                    keyboard: false
-                });
-                jQuery('#pleaseWaitDialog').css("display", 'flex');
-            });
-            jQuery(document).bind('ajaxComplete', function (e, request, options) {
-                jQuery('#pleaseWaitDialog').css("display", 'none');
-                jQuery('#pleaseWaitDialog').modal('hide');
-            });
-
-            function sendRequest() {
-                var url = "<?php echo $no_redirect_url ?>"
-                $.ajax({
-                    url: url,
-                    method: 'get',
-                    dataType: 'html',
-                    data: '',
-                    success: function (data) {
-                        $('#wooppay_frame_modal .modal-body').html(data);
-                        $('#wooppay_frame_modal').modal({
-                            backdrop: 'static',
-                            keyboard: false
-                        });
-                    },
-                });
-            }
-
-            function abortWoocommerceAjax() {
-                $('#place_order').attr('type', 'button');
-                $('#place_order').attr('id', 'wooppay_checkout');
-                $('#wooppay_checkout').on('click', function () {
-                    sendRequest();
-                })
-            }
-
-            jQuery(document).ajaxSuccess(function (e, request, options) {
-                if (options.url == '/?wc-ajax=checkout' && getQueryVariable('payment_method', options.data) == 'wooppay_wallet') {
-                    if (request.responseJSON.messages.length > 0) {
-                        var message = $(request.responseJSON.messages).html();
-                        if (message.replace(/\s/g, '') == 'Wooppay:Оплатапродолжается') {
-                            abortWoocommerceAjax();
-                            sendRequest();
-                        }
-                    }
-                }
-            });
-
-            function base64ToBlob(base64, mimetype) {
-                if (!window.atob || !window.Uint8Array) {
-                    console.log('The current browser doesnot have the atob function. Cannot continue');
-                    return null;
-                }
-                slicesize = 512;
-                var bytechars = atob(base64);
-                var bytearrays = [];
-                for (var offset = 0; offset < bytechars.length; offset += slicesize) {
-                    var slice = bytechars.slice(offset, offset + slicesize);
-                    var bytenums = new Array(slice.length);
-                    for (var i = 0; i < slice.length; i++) {
-                        bytenums[i] = slice.charCodeAt(i);
-                    }
-                    var bytearray = new Uint8Array(bytenums);
-                    bytearrays[bytearrays.length] = bytearray;
-                }
-                return new Blob(bytearrays, {type: mimetype});
-            }
-
-            var functionName = "rechargeReceiver";
-
-            if (typeof functionName != "function") {
-                functionName = function (event) {
-                    if (event.data) {
-                        var message = JSON.parse(event.data);
-                        if (message.status !== 4) {
-                            var err_info = "";
-                            if (message.data && typeof message.data.errorCode != "undefined") {
-                                var errors_text = getAcquiringErrors();
-                                var err_key = "e_" + message.data.errorCode;
-                                if (err_key in errors_text) {
-                                    err_info = errors_text[err_key];
-                                }
-                            }
-                            if (message.status == 3) {
-                                if (err_info == '') {
-                                    err_info = 'Произошла ошибка. Скорее всего вы ввели некорректные данные карты';
-                                }
-                            } else if (message.status == 2) {
-                                if (err_info == '') {
-                                    err_info = 'Произошла ошибка. Возможно вы ввели некорректные данные карты';
-                                }
-                            }
-                            var url = "<?php echo $no_redirect_url ?>"
-                            $.ajax({
-                                url: url,
-                                type: "POST",
-                                data: 'woop_frame_status=' + message.status + '&woop_frame_error=' + err_info + '&form=213',
-                                beforeSend: function () {
-                                    if ($('#wooppay_frame_modal iframe').length > 0) {
-                                        $('#wooppay_frame_modal').css('display', 'none')
-                                    }
-                                },
-                                success: function (result) {
-                                    if (!$.parseJSON(result)[1]) {
-                                        console.log('зашел')
-                                        $('#wooppay_frame_modal').css('display', 'flex')
-                                        $('#wooppay_frame_modal .modal-body').html($.parseJSON(result)[0]);
-                                        $("#wooppay_frame_modal").on("hide.bs.modal", function () {
-                                            window.location = 'checkout';
-                                        });
-                                    }
-                                    if ($.parseJSON(result)[1]) {
-                                        if ($.parseJSON(result)[1] !== 'none') {
-                                            var mime = 'application/pdf';
-                                            var a = document.createElement('a');
-                                            var urlCreator = window.URL || window.webkitURL || window.mozURL || window.msURL;
-                                            if (urlCreator && window.Blob && ('download' in a) && window.atob) {
-                                                var blob = base64ToBlob($.parseJSON(result)[1], mime);
-                                                var url = window.URL.createObjectURL(blob);
-                                                a.setAttribute('href', url);
-                                                a.setAttribute("download", 'receipt.pdf');
-                                                var event = document.createEvent('MouseEvents');
-                                                event.initMouseEvent('click', true, true, window, 1, 0, 0, 0, 0, false, false, false, false, 0, null);
-                                                a.dispatchEvent(event);
-                                            }
-                                        }
-                                        window.location = $.parseJSON(result)[2];
-                                    }
-                                },
-                                complete: function () {
-                                },
-                                error: function (error) {
-                                    console.log(error);
-                                }
-                            });
-                        }
-                    }
-                };
-                window.addEventListener("message", functionName, false);
-            }
-
-            function getAcquiringErrors() {
-                return {
-                    'e_04': 'Карта заблокирована. Для снятия ограничений, позвоните в Колл-центр вашего банка.',
-                    'e_05': 'Транзакция отклонена. Позвоните в Колл-центр вашего банка.',
-                    'e_07': 'Карта заблокирована. Для снятия ограничений, позвоните в Колл-центр вашего банка.',
-                    'e_12': 'Недействительная транзакция, перепроверьте введенные данные. В случае повторения ошибки попробуйте позже...',
-                    'e_14': 'Недействительный номер карты.',
-                    'e_19': 'Ошибка авторизации.',
-                    'e_30': 'Переданы неверные данные для оплаты пополнения. Обратитесь в службу поддержки.',
-                    'e_36': 'Карта заблокирована. Для снятия ограничений, позвоните в Колл-центр вашего банка.',
-                    'e_37': 'По карте выставлены ограничения. Для снятия ограничений, позвоните в Колл-центр вашего банка.',
-                    'e_41': 'Карта, числится в базе утерянных. Позвоните в Колл-центр вашего банка.',
-                    'e_45': 'Карта, числится в базе украденых. Позвоните в Колл-центр вашего банка, либо обратиться в ближайшее отделение полиции.',
-                    'e_51': 'Недостаточно средств на карте.',
-                    'e_54': 'Истёк срок действия карты.',
-                    'e_57': 'Карта закрыта для интернет-транзакций. Обратитесь в ваш банк.',
-                    'e_58': 'Операции с картами временно приостановлены. Попробуйте позже.',
-                    'e_61': 'Сумма превышает допустимый суточный лимит. Можете обратиться в службу поддержки, либо завершить операцию завтра.',
-                    'e_62': 'Карта заблокирована банком. Позвоните в Колл-центр вашего банка.',
-                    'e_91': 'Ваш банк временно не доступен. Попробуйте оплатить позже.',
-                    'e_96': 'Не установлен 3DSecure(SecureCode) либо сбой связи. Позвоните в Колл-центр вашего банка.',
-                };
-            }
-
-        })(jQuery);
-    </script>
-	<?php
+	wp_register_script( 'script', plugins_url( '/script.js', __FILE__ ) );
+	wp_enqueue_script( 'script' );
 }
+
 ?>

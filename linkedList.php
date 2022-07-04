@@ -115,23 +115,5 @@
             $(this).toggleClass('active');
         })
         $('#wooppay_frame_modal .empty')[0].click();
-        $('#wooppay_choice_card_btn').on('click', function () {
-            $('#wooppay_frame_modal').modal('hide');
-            $.ajax({
-                url: $('#file_url').text(),
-                type: "POST",
-                data: $("#wooppay_card_choice").serialize(),
-                success: function (response) {
-                    $('#wooppay_frame_modal .modal-body').html(response);
-                    $('#wooppay_frame_modal').modal({
-                        backdrop: 'static',
-                        keyboard: false
-                    });
-                },
-                error: function (response) {
-
-                }
-            });
-        })
     })(jQuery);
 </script>
